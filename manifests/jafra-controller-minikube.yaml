@@ -1,0 +1,95 @@
+---
+# RBAC: allow jafra-controller to list/get pods and exec into them across all namespaces
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jafra-controller
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jafra-controller
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jafra-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jafra-controller
+subjects:
+  - kind: ServiceAccount
+    name: jafra-controller
+    namespace: monitoring
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jafra-controller
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jafra-controller
+  template:
+    metadata:
+      labels:
+        app: jafra-controller
+    spec:
+      serviceAccountName: jafra-controller
+      containers:
+        - name: jafra-controller
+          image: quay.io/bharathappali/jafra-controller:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "0.25"
+            limits:
+              memory: "512Mi"
+              cpu: "0.5"
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jafra-controller
+  namespace: monitoring
+spec:
+  type: NodePort
+  selector:
+    app: jafra-controller
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 30081
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090
